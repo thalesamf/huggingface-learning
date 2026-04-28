@@ -8,9 +8,9 @@
 | .json .jsonl | json | `load_dataset("json", data_files="my_file.jsonl")` |
 | pkl | pandas | `load_dataset("pandas", data_files="my_dataframe.pkl")` |
 
-:bulb: A .tsv file can be loaded by specying the `delimiter` argument in `load_dataset()`.
+:bulb: A .tsv file can be loaded by specying the `delimiter="\t"` argument in `load_dataset()`.
 
-For example, to load locally the downloaded SQuAD_it dataset:
+For example, to load the [SQuAD_it](https://github.com/crux82/squad-it/) dataset:
 ```python
 data_files = {"train": "SQuAD_it-train.json.gz", "test": "SQuAD_it-test.json.gz"}
 squad_it_dataset = load_dataset("json", data_files=data_files, field="data")
