@@ -122,4 +122,4 @@ data_files = {
 drug_dataset_reloaded = load_dataset("json", data_files=data_files)
 ```
 
-## :pushpin: Creating your own dataset
+## :pushpin: [Creating your own dataset](https://huggingface.co/learn/llm-course/chapter5/5)
