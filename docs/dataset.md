@@ -1,5 +1,5 @@
-## :hugs: The Datasets Library
-### :pushpin: How to work with local and remote datasets?
+# :hugs: The Datasets Library
+## :pushpin: How to work with local and remote datasets?
 
 | Data format | Loading script | Example |
 | :--- | :--- | :--- |
@@ -31,13 +31,13 @@ By default, loading local files creates a `DatasetDict` object, which shows the 
 
 :bulb: With the train and test splits in a single `DatasetDict`, we can apply `Dataset.map()` functions across the splits.
 
-### :pushpin: How to drop rows with empty values in a dataset?
+## :pushpin: How to drop rows with empty values in a dataset?
 We can use a ***lambda function*** with `Dataset.filter()` to drop rows with empty values.
 ```python
 drug_dataset = drug_dataset.filter(lambda x: x["condition"] is not None)
 ```
 
-### :pushpin: How to rename the column names of a dataset?
+## :pushpin: How to rename the column names of a dataset?
 After loading a dataset, we can use the `DatasetDict.rename_colum()` to rename the columns.
 
 For example, in the [Drug Review Dataset](https://archive.ics.uci.edu/ml/datasets/Drug+Review+Dataset+%28Drugs.com%29), we can rename the `Unamed: 0` column to `patient_id`:
@@ -56,7 +56,7 @@ def lowercase_condition(example):
 drug_dataset.map(lowercase_condition)
 ```
 
-### :pushpin: How to create a column?
+## :pushpin: How to create a column?
 We can add a column to the dataset that contains the number of words in each the column `review`.
 
 To count the number of words, we can write `compute_review_length()` to split each text by whitespace and calculate the length. Then, we can apply
@@ -69,13 +69,13 @@ drug_dataset = drug_dataset.map(compute_review_length)
 
 :bulb: Alternatively, we could use `Dataset.add_colum()`.
 
-### :pushpin: How to sort a column?
+## :pushpin: How to sort a column?
 We can sort a column using `Dataset.sort()`:
 ```python
 drug_dataset["train"].sort("review_length")[:3]
 ```
 
-### How to drop rows following a rule?
+## How to drop rows following a rule?
 We can use `Dataset.filter()` to remove the reviews contianing less than 30 words, because they couldn't be informative for predicting the condition. 
 ```python
 drug_dataset = drug_dataset.filter(lambda x: x["review_length"] > 30)
@@ -89,7 +89,7 @@ drug_dataset = drug_dataset.map(lambda x: {"review": html.unescape(x["review"])}
 
 :bulb: The `Dataset.map()` argument `batched=True` results in a batch of examples to the map function, speeding up by processing several elements at the same time. This will be important to unlock the speed of tokenizers.
 
-### :pushpin: How to split the dataset?
+## :pushpin: How to split the dataset?
 The `Dataset.train_test_split()` can be used to split the training set into `train` and `validation` splits:
 ```python
 drug_dataset_clean = drug_dataset["train"].train_test_split(train_size=0.8, seed=42)
@@ -99,7 +99,7 @@ drug_dataset_clean["validation"] = drug_dataset_clean.pop("test")
 drug_dataset_clean["test"] = drug_dataset["test"]
 ```
 
-### :pushpin: How to save a Dataset?
+## :pushpin: How to save a dataset?
 | Data format | Function                 |
 | :-----------| :------------------------|
 | Arrow       | `Dataset.save_to_disk()` |
@@ -122,4 +122,4 @@ data_files = {
 drug_dataset_reloaded = load_dataset("json", data_files=data_files)
 ```
 
-### :pushpin: How to work with big datasets?
+## :pushpin: Creating your own dataset
