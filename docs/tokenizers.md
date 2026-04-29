@@ -181,7 +181,6 @@ tokenizer.backend_tokenizer.pre_tokenizer.pre_tokenize_str("Hello, how are  you?
 ### Byte-Pair Encoding (BPE)
 The BPE algorith as initially developed to compress texts, and then used for tokenization of Transformer models, including GPT, GPT-2, RoBERTa, BART, and DeBERTa.
 
-#### Algorithm
 After normalization and pre-tokenization, BPE starts by computing the unique set of words used in the corpus. Then, BPE builds the vocabulary by taking all the symbols used to write the words.
 
 For example, if the corpus has the five words `"hug", "pug", "pun", "bun", "hugs"`, the vocabulary would contain `["b", "g", "h", "n", "p", "s", "u"]`. In real, the vocabulary will contain all the **ASCII charaters**, and some **Unicode** charaters. If the text uses a haracter that is not in the training corpus, that character will be converted to the unknown token.
@@ -218,178 +217,9 @@ Corpus: ("h" "ug", 10), ("p" "ug", 5), ("p" "un", 12), ("b" "un", 4), ("h" "ug" 
 
 Continuing, we reach the desired vocabulary size. Because the word `"mug"` contain the character `"m"` that is not present in the vocabulary, it will be tokenized as `["[UNK]", "ug"]`.
 
-#### Implementation
-In the example below, we created a corpus with few sequences:
-```python
-corpus = [
-    "This is the Hugging Face Course.",
-    "This chapter is about tokenization.",
-    "This section shows several tokenizer algorithms.",
-    "Hopefully, you will be able to understand how they are trained and generate tokens.",
-]
-```
-
-Next, we load the BPE tokenizer from the GPT-2 model to pre-tokenize the corpus into words:
-```python
-from transformers import AutoTokenizer
-
-tokenizer = AutoTokenizer.from_pretrained("gpt2")
-```
-
-Then, we compute the frequencies of each word in the corpus as we do the pretokenization:
-```python
-from collections import defaultdict
-
-word_freqs = defaultdict(int)
-
-for text in corpus:
-    words_with_offsets = tokenizer.backend_tokenizer.pre_tokenizer.pre_tokenize_str(text)
-    new_words = [word for word, offset in words_with_offsets]
-    for word in new_words:
-        word_freqs[word] += 1
-
-print(word_freqs)
-```
-
-```python
-defaultdict(int, {'This': 3, 'Ġis': 2, 'Ġthe': 1, 'ĠHugging': 1, 'ĠFace': 1, 'ĠCourse': 1, '.': 4, 'Ġchapter': 1,
-    'Ġabout': 1, 'Ġtokenization': 1, 'Ġsection': 1, 'Ġshows': 1, 'Ġseveral': 1, 'Ġtokenizer': 1, 'Ġalgorithms': 1,
-    'Hopefully': 1, ',': 1, 'Ġyou': 1, 'Ġwill': 1, 'Ġbe': 1, 'Ġable': 1, 'Ġto': 1, 'Ġunderstand': 1, 'Ġhow': 1,
-    'Ġthey': 1, 'Ġare': 1, 'Ġtrained': 1, 'Ġand': 1, 'Ġgenerate': 1, 'Ġtokens': 1})
-```
-
-Then, we compute the base vocabulary formed by all the characters used in the corpus:
-```python
-alphabet = []
-
-for word in word_freqs.keys():
-    for letter in word:
-        if letter not in alphabet:
-            alphabet.append(letter)
-alphabet.sort()
-
-print(alphabet)
-```
-
-```python
-[ ',', '.', 'C', 'F', 'H', 'T', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'k', 'l', 'm', 'n', 'o', 'p', 'r', 's',
-  't', 'u', 'v', 'w', 'y', 'z', 'Ġ']
-```
-
-We also add the special tokens used by the model at the beginning of that vocabulary. In the case of GPT-2, the only special token is `"<|endoftext|>"`:
-```python
-vocab = ["<|endoftext|>"] + alphabet.copy()
-```
-
-Then, we need to split each word into individual characters:
-```python
-splits = {word: [c for c in word] for word in word_freqs.keys()}
-```
-
-Next, we compute the frequency of each pair:
-```python
-def compute_pair_freqs(splits):
-    pair_freqs = defaultdict(int)
-    for word, freq in word_freqs.items():
-        split = splits[word]
-        if len(split) == 1:
-            continue
-        for i in range(len(split) - 1):
-            pair = (split[i], split[i + 1])
-            pair_freqs[pair] += freq
-    return pair_freqs
-
-pair_freqs = compute_pair_freqs(splits)
-```
-Then, we need to merge the pair of tokens from the `splits` dictionary:
-```python
-def merge_pair(a, b, splits):
-    for word in word_freqs:
-        split = splits[word]
-        if len(split) == 1:
-            continue
-
-        i = 0
-        while i < len(split) - 1:
-            if split[i] == a and split[i + 1] == b:
-                split = split[:i] + [a + b] + split[i + 2 :]
-            else:
-                i += 1
-        splits[word] = split
-    return splits
-```
-
-Now, we loop until the tokenizer have learned all the merges we want aiming the vocabulary size:
-```python
-vocab_size = 50
-
-while len(vocab) < vocab_size:
-    pair_freqs = compute_pair_freqs(splits)
-    best_pair = ""
-    max_freq = None
-    for pair, freq in pair_freqs.items():
-        if max_freq is None or max_freq < freq:
-            best_pair = pair
-            max_freq = freq
-    splits = merge_pair(*best_pair, splits)
-    merges[best_pair] = best_pair[0] + best_pair[1]
-    vocab.append(best_pair[0] + best_pair[1])
-```
-
-Consequently, the tokenizer has learned 19 merge rules:
-```python
-print(merges)
-```
-
-```python
-{('Ġ', 't'): 'Ġt', ('i', 's'): 'is', ('e', 'r'): 'er', ('Ġ', 'a'): 'Ġa', ('Ġt', 'o'): 'Ġto', ('e', 'n'): 'en',
- ('T', 'h'): 'Th', ('Th', 'is'): 'This', ('o', 'u'): 'ou', ('s', 'e'): 'se', ('Ġto', 'k'): 'Ġtok',
- ('Ġtok', 'en'): 'Ġtoken', ('n', 'd'): 'nd', ('Ġ', 'is'): 'Ġis', ('Ġt', 'h'): 'Ġth', ('Ġth', 'e'): 'Ġthe',
- ('i', 'n'): 'in', ('Ġa', 'b'): 'Ġab', ('Ġtoken', 'i'): 'Ġtokeni'}
-```
-
-In addition, the vocabulary is compsed by the special token, the initial alphabet, and all the merges:
-```python
-print(vocab)
-```
-
-```python
-['<|endoftext|>', ',', '.', 'C', 'F', 'H', 'T', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'k', 'l', 'm', 'n', 'o',
- 'p', 'r', 's', 't', 'u', 'v', 'w', 'y', 'z', 'Ġ', 'Ġt', 'is', 'er', 'Ġa', 'Ġto', 'en', 'Th', 'This', 'ou', 'se',
- 'Ġtok', 'Ġtoken', 'nd', 'Ġis', 'Ġth', 'Ġthe', 'in', 'Ġab', 'Ġtokeni']
-```
-
-Then, we can tokenize a new text by pre-tokenizing, splitting, and applying the merge rules:
-```python
-def tokenize(text):
-    pre_tokenize_result = tokenizer._tokenizer.pre_tokenizer.pre_tokenize_str(text)
-    pre_tokenized_text = [word for word, offset in pre_tokenize_result]
-    splits = [[l for l in word] for word in pre_tokenized_text]
-    for pair, merge in merges.items():
-        for idx, split in enumerate(splits):
-            i = 0
-            while i < len(split) - 1:
-                if split[i] == pair[0] and split[i + 1] == pair[1]:
-                    split = split[:i] + [merge] + split[i + 2 :]
-                else:
-                    i += 1
-            splits[idx] = split
-
-    return sum(splits, [])
-
-print(tokenize("This is not a token."))
-```
-
-```python
-['This', 'Ġis', 'Ġ', 'n', 'o', 't', 'Ġa', 'Ġtoken', '.']
-```
-
-:bulb: Because GPT-2 doesn't have an unknown token, it’s impossible to get an unknown character when using byte-level BPE, but this could happen here because we did not include all the possible bytes in the initial vocabulary.
-
 ### WordPiece
 The WordPiece is the tokenization algorithm developed to pretrain **BERT**, and has been reused in few Transfromers models based on BERT, such as DistilBERT, Funnel Transformers, and MPNET.
 
-#### Algorithm
 As BPE, WordPiece starts from a small vocabulary including the special tokens used by the model, and the intial alphabet. As WrodPiece identifies subwords by addind a prefix (`##`), each word is initially splitted y adding that prefix to all the charcters inside the word. For example, `"word"` is splitted to `w ##o ##r ##d`.
 
 Consequently, the initial alphabet contains all characters present in the beggining of a word and the characters present inside a word preced by the WordPiece prefix (e.g., `##`).
@@ -415,176 +245,281 @@ $score=(freq_of_pair)/(freq_of_first_element×freq_of_second_element)$
 
  When the tokenization gets to a stage where it’s not possible to find a subword in the vocabulary, the whole word is tokenized as unknown `["[UNK]"]`.
 
- #### Implementation
-
-Using the same corpus as in BPE, we first need to pre-tokenize the corpus into words.
-
-```python
-from transformers import AutoTokenizer
-
-tokenizer = AutoTokenizer.from_pretrained("bert-base-cased")
-```
-
-Then, we compute the frequencies of each word in the corpus:
-```python
-from collections import defaultdict
-
-word_freqs = defaultdict(int)
-for text in corpus:
-    words_with_offsets = tokenizer.backend_tokenizer.pre_tokenizer.pre_tokenize_str(text)
-    new_words = [word for word, offset in words_with_offsets]
-    for word in new_words:
-        word_freqs[word] += 1
-
-word_freqs
-```
-
-```python
-defaultdict(
-    int, {'This': 3, 'is': 2, 'the': 1, 'Hugging': 1, 'Face': 1, 'Course': 1, '.': 4, 'chapter': 1, 'about': 1,
-    'tokenization': 1, 'section': 1, 'shows': 1, 'several': 1, 'tokenizer': 1, 'algorithms': 1, 'Hopefully': 1,
-    ',': 1, 'you': 1, 'will': 1, 'be': 1, 'able': 1, 'to': 1, 'understand': 1, 'how': 1, 'they': 1, 'are': 1,
-    'trained': 1, 'and': 1, 'generate': 1, 'tokens': 1})
-```
-
-The alphabet is the unique set composed of all the first letters of words, and all the other letters that appear in words prefixed by `##`:
-```python
-alphabet = []
-for word in word_freqs.keys():
-    if word[0] not in alphabet:
-        alphabet.append(word[0])
-    for letter in word[1:]:
-        if f"##{letter}" not in alphabet:
-            alphabet.append(f"##{letter}")
-
-alphabet.sort()
-alphabet
-
-print(alphabet)
-```
-
-```python
-['##a', '##b', '##c', '##d', '##e', '##f', '##g', '##h', '##i', '##k', '##l', '##m', '##n', '##o', '##p', '##r', '##s',
- '##t', '##u', '##v', '##w', '##y', '##z', ',', '.', 'C', 'F', 'H', 'T', 'a', 'b', 'c', 'g', 'h', 'i', 's', 't', 'u',
- 'w', 'y']
-```
-
-We also add the special tokens used by the model at the beginning of that vocabulary. In the case of BERT, it’s the list `["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]`:
-```python
-vocab = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"] + alphabet.copy()
-```
-
-Next, we split each word with all the letters that are not the first prefixed with `##`:
-```python
-splits = {
-    word: [c if i == 0 else f"##{c}" for i, c in enumerate(word)]
-    for word in word_freqs.keys()
-}
-```
-
-Then, we compute the score of each pair:
-```python
-def compute_pair_scores(splits):
-    letter_freqs = defaultdict(int)
-    pair_freqs = defaultdict(int)
-    for word, freq in word_freqs.items():
-        split = splits[word]
-        if len(split) == 1:
-            letter_freqs[split[0]] += freq
-            continue
-        for i in range(len(split) - 1):
-            pair = (split[i], split[i + 1])
-            letter_freqs[split[i]] += freq
-            pair_freqs[pair] += freq
-        letter_freqs[split[-1]] += freq
-
-    scores = {
-        pair: freq / (letter_freqs[pair[0]] * letter_freqs[pair[1]])
-        for pair, freq in pair_freqs.items()
-    }
-    return scores
-pair_scores = compute_pair_scores(splits)
-```
-We need to apply that merge in our splits dictionary:
-```python
-def merge_pair(a, b, splits):
-    for word in word_freqs:
-        split = splits[word]
-        if len(split) == 1:
-            continue
-        i = 0
-        while i < len(split) - 1:
-            if split[i] == a and split[i + 1] == b:
-                merge = a + b[2:] if b.startswith("##") else a + b
-                split = split[:i] + [merge] + split[i + 2 :]
-            else:
-                i += 1
-        splits[word] = split
-    return splits
-```
-
-Lastly, we loop until we have learned all the merges we want:
-```python
-vocab_size = 70
-while len(vocab) < vocab_size:
-    scores = compute_pair_scores(splits)
-    best_pair, max_score = "", None
-    for pair, score in scores.items():
-        if max_score is None or max_score < score:
-            best_pair = pair
-            max_score = score
-    splits = merge_pair(*best_pair, splits)
-    new_token = (
-        best_pair[0] + best_pair[1][2:]
-        if best_pair[1].startswith("##")
-        else best_pair[0] + best_pair[1]
-    )
-    vocab.append(new_token)
-
-print(vocab)
-```
-
-```python
-['[PAD]', '[UNK]', '[CLS]', '[SEP]', '[MASK]', '##a', '##b', '##c', '##d', '##e', '##f', '##g', '##h', '##i', '##k',
- '##l', '##m', '##n', '##o', '##p', '##r', '##s', '##t', '##u', '##v', '##w', '##y', '##z', ',', '.', 'C', 'F', 'H',
- 'T', 'a', 'b', 'c', 'g', 'h', 'i', 's', 't', 'u', 'w', 'y', 'ab', '##fu', 'Fa', 'Fac', '##ct', '##ful', '##full', '##fully',
- 'Th', 'ch', '##hm', 'cha', 'chap', 'chapt', '##thm', 'Hu', 'Hug', 'Hugg', 'sh', 'th', 'is', '##thms', '##za', '##zat',
- '##ut']
-```
-
-To tokenize a new text, we pre-tokenize it, split it, then apply the tokenization algorithm on each word. That is, we look for the biggest subword starting at the beginning of the first word and split it, then we repeat the process on the second part, and so on for the rest of that word and the following words in the text:
-```python
-def encode_word(word):
-    tokens = []
-    while len(word) > 0:
-        i = len(word)
-        while i > 0 and word[:i] not in vocab:
-            i -= 1
-        if i == 0:
-            return ["[UNK]"]
-        tokens.append(word[:i])
-        word = word[i:]
-        if len(word) > 0:
-            word = f"##{word}"
-    return tokens
-```
-
-As result, we can write a function that tokenizes a text:
-```python
-def tokenize(text):
-    pre_tokenize_result = tokenizer._tokenizer.pre_tokenizer.pre_tokenize_str(text)
-    pre_tokenized_text = [word for word, offset in pre_tokenize_result]
-    encoded_words = [encode_word(word) for word in pre_tokenized_text]
-    return sum(encoded_words, [])
-
-print(tokenize("This is the Hugging Face course!"))
-```
-
-```python
-['Th', '##i', '##s', 'is', 'th', '##e', 'Hugg', '##i', '##n', '##g', 'Fac', '##e', 'c', '##o', '##u', '##r', '##s',
- '##e', '[UNK]']
-```
-
-#### SentencePiece
+### Unigram
 [SentencePiece](https://github.com/google/sentencepiece) considers the text as a sequence of Unicode characters, and replaces spaces with a special character, `_`. Also, it performs ***reversible tokenization***, which allows to decode the tokens by concatenating them and replacing the `_` with spaces.
 
+SentencePiece addresses the fact that not all languages use spaces to separate words. Instead, SentencePiece treats the input as a raw input stream which includes the space in the set of characters to use. Then it can use the Unigram algorithm to construct the appropriate vocabulary.
+
+ Unigram works in the other direction: it starts from a big vocabulary and removes tokens from it until it reaches the desired vocabulary size.
+
+ At each step of the training, the Unigram algorithm computes a loss over the corpus given the current vocabulary. Then, for each symbol in the vocabulary, the algorithm computes how much the overall loss would increase if the symbol was removed, and looks for the symbols that would increase it the least.
+
+ From the corpus that we used in the BPE and WordPiece examples, the splits and the intiali vocabulary would be:
+ ```python
+("hug", 10), ("pug", 5), ("pun", 12), ("bun", 4), ("hugs", 5)
+
+["h", "u", "g", "hu", "ug", "p", "pu", "n", "un", "b", "bu", "s", "hug", "gs", "ugs"]
+ ```
+
+the Unigram model considers each token to be independent of the tokens before it.The probability of a given token is its frequency (the number of times we find it) in the original corpus, divided by the sum of all frequencies of all tokens in the vocabulary (to make sure the probabilities sum up to 1).
+
+Beloware the frequencies of all possible subwords in the vocabulary:
+```python
+("h", 15) ("u", 36) ("g", 20) ("hu", 15) ("ug", 20) ("p", 17) ("pu", 17) ("n", 16)
+("un", 16) ("b", 4) ("bu", 4) ("s", 5) ("hug", 15) ("gs", 5) ("ugs", 5)
+```
+
+To tokenize a given word, we look at all the possible segmentations into tokens and compute the probability of each according to the Unigram model. Since all tokens are considered independent, this probability is just the product of the probability of each token
+
+$P(["p", "u", "g"]) = P("p") x P("u") x P("g")$
+
+Therefore, the tokenization of a word with the Unigram model is the tokenization with the highest probability.
+
+In the case of `"pug"`, below are the probabilities for each possible segmentation:
+```python
+["p", "u", "g"] : 0.000389
+["p", "ug"] : 0.0022676
+["pu", "g"] : 0.0022676
+```
+
+Thus, `"pug"` would be tokenized a `["p", "ug"]` or `["pu", "g"]`,  depending on which of those segmentations is encountered first.
+
+At any given stage, this loss is computed by tokenizing every word in the corpus, using the current vocabulary and the Unigram model determined by the frequencies of each token in the corpus. Each word in the corpus has a score, and the loss is the negative log likelihood of those scores (i.e., the sum for all the words in the corpus of all the `-log(P(word))`).
+
+For the corpus, the tokenization of each word with the respective score is:
+```python
+("hug", 10), ("pug", 5), ("pun", 12), ("bun", 4), ("hugs", 5)
+
+"hug": ["hug"] (score 0.071428)
+"pug": ["pu", "g"] (score 0.007710)
+"pun": ["pu", "n"] (score 0.006168)
+"bun": ["bu", "n"] (score 0.001451)
+"hugs": ["hug", "s"] (score 0.001701)
+```
+
+Thus, the loss is:
+```python
+10 * (-log(0.071428)) + 5 * (-log(0.007710)) + 12 * (-log(0.006168)) + 4 * (-log(0.001451)) + 5 * (-log(0.001701)) = 169.8
+```
+
+Next, we compute how removing each token affects the loss, and remove from the vocabulary the tokens.
+
+## :pushpin: Building a tokenizer
+
+The `Tokenizer` class has the [submodules](https://huggingface.co/docs/tokenizers/components) necessary for building a tokenizer:
+* `normalizers` contains all the possible types of [`Normalizer`](https://huggingface.co/docs/tokenizers/api/normalizers)
+* `pre_tokenizers` has all the possible types of [`PreTokenizer`](https://huggingface.co/docs/tokenizers/api/pre-tokenizers)
+* `models` has all the possible types of [`Model`](https://huggingface.co/docs/tokenizers/api/models), such as `BPE` and `WordPiece`
+* `trainers` has all the possible types of [`Trainer`](https://huggingface.co/docs/tokenizers/api/trainers) to train the model on a corpus
+* `post_processors` has all the possible types of [`PostProcessor`](https://huggingface.co/docs/tokenizers/api/post-processors)
+* `decoders` has all the possible types of [`Decoder`](https://huggingface.co/docs/tokenizers/components#decoders)
+
+### Getting a corpus
+We are going to use the [WikiText-2](https://huggingface.co/datasets/wikitext) dataset:
+```python
+from datasets import load_dataset
+
+dataset = load_dataset("wikitext", name="wikitext-2-raw-v1", split="train")
+
+
+def get_training_corpus():
+    for i in range(0, len(dataset), 1000):
+        yield dataset[i : i + 1000]["text"]
+```
+
+The function `get_training_corpus()` is a generator that will yield batches of 1,000 texts, which we will use to train the tokenizer.
+
+Alternatively, we can yse the file directly:
+```python
+with open("wikitext-2.txt", "w", encoding="utf-8") as f:
+    for i in range(len(dataset)):
+        f.write(dataset[i]["text"] + "\n")
+```
+
+### Building a WordPiece tokenizer from scratch
+#### 1. Instantiate a `Tokenizer` object
+
+Let's create a `Tokenizer` with a WordPiece model:
+```python
+from tokenizers import (
+    decoders,
+    models,
+    normalizers,
+    pre_tokenizers,
+    processors,
+    trainers,
+    Tokenizer,
+)
+
+tokenizer = Tokenizer(models.WordPiece(unk_token="[UNK]"))
+```
+
+:bulb: We have to specify the `unk_token` so the model knows what to return when it encounters characters it hasn't seen before.
+
+#### 2. Normalization
+Since BERT is widely used, there is a `BertNormalizer` with the options `lowercase`, `strip_accents`, `clean_text`, which removes all control characters and replace repeating spaces with a single one. To replicate the model `bert-base-uncased` tokenizer, we can just set this normalizer:
+```python
+tokenizer.normalizer = normalizers.BertNormalizer(lowercase=True)
+```
+
+Alternatively, we can create a normalizer from scratch:
+```python
+tokenizer.normalizer = normalizers.Sequence(
+    [normalizers.NFD(), normalizers.Lowercase(), normalizers.StripAccents()]
+)
+```
+
+#### 3. Pre-tokenization
+There is a prebuilt `BertPreTokenizer`:
+```python
+tokenizer.pre_tokenizer = pre_tokenizers.BertPreTokenizer()
+```
+
+Alternatively, we can build a pre-tokenizer from scratch that splites on whitespace:
+```python
+tokenizer.pre_tokenizer = pre_tokenizers.WhitespaceSplit()
+```
+
+As the normalizers, we can use a `Sequence` to compose several pre-tokenizers:
+```python
+pre_tokenizer = pre_tokenizers.Sequence(
+    [pre_tokenizers.WhitespaceSplit(), pre_tokenizers.Punctuation()]
+)
+```
+
+#### 3. Train the Tokenizer
+When instatiating a trainer, we need to pass all the special tokens we are intended to use, otherwise it won't add them to the vocabulary:
+```python
+special_tokens = ["[UNK]", "[PAD]", "[CLS]", "[SEP]", "[MASK]"]
+```
+
+Then, we call `WordPieceTrainer` to train our tokenizer.
+```python
+trainer = trainers.WordPieceTrainer(vocab_size=25000, special_tokens=special_tokens)
+```
+
+We can train our tokenizer directly using the text file with:
+```python
+tokenizer.model = models.WordPiece(unk_token="[UNK]")
+tokenizer.train(["wikitext-2.txt"], trainer=trainer)
+```
+
+Then, we can test the tokenizer on a text by calling the `encode()` method. The `encoding` obtained is an `Encoding`, which contains all the necessary outputs of the tokenizer in its various attributes: ids, type_ids, tokens, offsets, attention_mask, special_tokens_mask, and overflowing
+```python
+encoding = tokenizer.encode("Let's test this tokenizer.")
+print(encoding.tokens)
+```
+
+```python
+['let', "'", 's', 'test', 'this', 'tok', '##eni', '##zer', '.']
+```
+
+#### 4. Post-processing
+
+We need to add the `[CLS]` token at the beginning and the `[SEP]` token at the end (or after each sentence, if we have a pair of sentences), which can be done using `TemplateProcessor`, but we first need to know the IDs of the `[CLS]` and `[SEP]` tokens in the vocabulary.
+```python
+cls_token_id = tokenizer.token_to_id("[CLS]")
+sep_token_id = tokenizer.token_to_id("[SEP]")
+print(cls_token_id, sep_token_id)
+```
+
+```python
+(2,3)
+```
+
+To write the template for the TemplateProcessor, we have to specify how to treat a single sentence and a pair of sentences. For both, we write the special tokens we want to use; the first (or single) sentence is represented by $A, while the second sentence (if encoding a pair) is represented by $B. For each of these (special tokens and sentences), we also specify the corresponding token type ID after a colon.
+```python
+tokenizer.post_processor = processors.TemplateProcessing(
+    single=f"[CLS]:0 $A:0 [SEP]:0",
+    pair=f"[CLS]:0 $A:0 [SEP]:0 $B:1 [SEP]:1",
+    special_tokens=[("[CLS]", cls_token_id), ("[SEP]", sep_token_id)],
+)
+```
+
+The last step is to add a decoder:
+```python
+tokenizer.decoder = decoders.WordPiece(prefix="##")
+```
+
+Then, we can save our tokenizer in a single JSON file:
+```python
+tokenizer.save("tokenizer.json")
+```
+
+We can then reload that file in a `Tokenizer` object with the `from_file()` method:
+```python
+tokenizer = Tokenizer.from_file("tokenizer.json")
+```
+
+To use the tokenizer in the `Transformers` library, we need to wrap it in a `PreTrainedTokenizerFast`. To wrap the tokenizer , we can either pass the tokenizer we built as a or pass the tokenizer file we saved. The key thing to remember is that we have to manually set all the special tokens, since that class can’t infer from the `tokenizer` object which token is the mask token, such as the `[CLS]` token.
+```python
+from transformers import PreTrainedTokenizerFast
+
+wrapped_tokenizer = PreTrainedTokenizerFast(
+    tokenizer_object=tokenizer,
+    # tokenizer_file="tokenizer.json",
+    unk_token="[UNK]",
+    pad_token="[PAD]",
+    cls_token="[CLS]",
+    sep_token="[SEP]",
+    mask_token="[MASK]",
+)
+```
+
+In paralell, if we are using a specific tokenizer class (such as `BertTokenizerFast`), we only need to specify the special tokens that are different from the default:
+```python
+from transformers import BertTokenizerFast
+
+wrapped_tokenizer = BertTokenizerFast(tokenizer_object=tokenizer)
+```
+
+### Building a BPE tokenizer from scratch
+#### 1. Instantiate a `Tokenizer` object
+```python
+tokenizer = Tokenizer(models.BPE())
+```
+Because GPT-2 uses byte-level BPE, we don't need to specify an `unk_token`. Also, GPT-2 does not use a normalizer.
+
+#### 2. Pre-tokenization
+The `ByteLevel`is not to add a space at the beggining of a sentence.
+```python
+tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+```
+
+#### 3. Training
+For GPT-2, the only special token is the end-of-text token:
+```python
+trainer = trainers.BpeTrainer(vocab_size=25000, special_tokens=["<|endoftext|>"])
+tokenizer.train_from_iterator(get_training_corpus(), trainer=trainer)
+```
+
+Alternatively, the tokenzier can be trianed directly on text files:
+```python
+tokenizer.model = models.BPE()
+tokenizer.train(["wikitext-2.txt"], trainer=trainer)
+```
+
+#### 4. Post-processing
+Apply the byte-level post-processing for the GPT-2 tokenizer. The `trim_offsets=False` indicates to the post-processor that we should leaved the offsets of tokens that begin with `Ġ`, which will point to the space before the word, not the first character of the word.
+
+```python
+tokenizer.post_processor = processors.ByteLevel(trim_offsets=False)
+```
+
+We can save the tokenizer, and wrap it in a `PreTrainedTokenizerFast` if we want to use it in the `Transformers` library:
+```python
+from transformers import PreTrainedTokenizerFast
+
+wrapped_tokenizer = PreTrainedTokenizerFast(
+    tokenizer_object=tokenizer,
+    bos_token="<|endoftext|>",
+    eos_token="<|endoftext|>",
+)
+```
+
+Alternatively, we can wrap the tokenizer in `GPT2TokenizerFast`:
+```python
+from transformers import GPT2TokenizerFast
+
+wrapped_tokenizer = GPT2TokenizerFast(tokenizer_object=tokenizer)
+```
