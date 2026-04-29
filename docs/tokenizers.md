@@ -387,7 +387,203 @@ print(tokenize("This is not a token."))
 :bulb: Because GPT-2 doesn't have an unknown token, it’s impossible to get an unknown character when using byte-level BPE, but this could happen here because we did not include all the possible bytes in the initial vocabulary.
 
 ### WordPiece
+The WordPiece is the tokenization algorithm developed to pretrain **BERT**, and has been reused in few Transfromers models based on BERT, such as DistilBERT, Funnel Transformers, and MPNET.
 
+#### Algorithm
+As BPE, WordPiece starts from a small vocabulary including the special tokens used by the model, and the intial alphabet. As WrodPiece identifies subwords by addind a prefix (`##`), each word is initially splitted y adding that prefix to all the charcters inside the word. For example, `"word"` is splitted to `w ##o ##r ##d`.
+
+Consequently, the initial alphabet contains all characters present in the beggining of a word and the characters present inside a word preced by the WordPiece prefix (e.g., `##`).
+
+As BPE, WordPiece learns merge rules, but instead of selecting the most frequent pair, WordPiece computes a score for each pair.
+
+$score=(freq_of_pair)/(freq_of_first_element×freq_of_second_element)$
+
+ By dividing the frequency of each pair (`freq_of_pair`) by the product between the frequencies of each of the pairs (`freq_of_first_element×freq_of_second_element`), the algorithm prioritize the merging of pairs where the individual parts are less frequent in the vocabulary.
+
+ From the vocabulary that we used in the BPE example, the splits would be:
+ ```python
+ ("hug", 10), ("pug", 5), ("pun", 12), ("bun", 4), ("hugs", 5)
+```
+
+```python
+ ("h" "##u" "##g", 10), ("p" "##u" "##g", 5), ("p" "##u" "##n", 12), ("b" "##u" "##n", 4), ("h" "##u" "##g" "##s", 5)
+ ```
+
+ Thus, the initial vocabulary would be `["b", "h", "p", "##g", "##n", "##s", "##u"]`.
+
+ One difference between WordPiece and BPE is that it only saves the final vocabulary, not the merged rules learned. For instance, if we use the vocabulary learned in the example above, for the word `"hugs"` the longest subword starting from the beginning that is inside the vocabulary is `"hug"`, so we split there and get `["hug", "##s"]`. We then continue with `"##s"`, which is in the vocabulary, so the tokenization of `"hugs"` is `["hug", "##s"]`. In contrast, with BPE `"hugs"` would be tokenized as `["hu", "##gs"]`.
+
+ When the tokenization gets to a stage where it’s not possible to find a subword in the vocabulary, the whole word is tokenized as unknown `["[UNK]"]`.
+
+ #### Implementation
+
+Using the same corpus as in BPE, we first need to pre-tokenize the corpus into words.
+
+```python
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("bert-base-cased")
+```
+
+Then, we compute the frequencies of each word in the corpus:
+```python
+from collections import defaultdict
+
+word_freqs = defaultdict(int)
+for text in corpus:
+    words_with_offsets = tokenizer.backend_tokenizer.pre_tokenizer.pre_tokenize_str(text)
+    new_words = [word for word, offset in words_with_offsets]
+    for word in new_words:
+        word_freqs[word] += 1
+
+word_freqs
+```
+
+```python
+defaultdict(
+    int, {'This': 3, 'is': 2, 'the': 1, 'Hugging': 1, 'Face': 1, 'Course': 1, '.': 4, 'chapter': 1, 'about': 1,
+    'tokenization': 1, 'section': 1, 'shows': 1, 'several': 1, 'tokenizer': 1, 'algorithms': 1, 'Hopefully': 1,
+    ',': 1, 'you': 1, 'will': 1, 'be': 1, 'able': 1, 'to': 1, 'understand': 1, 'how': 1, 'they': 1, 'are': 1,
+    'trained': 1, 'and': 1, 'generate': 1, 'tokens': 1})
+```
+
+The alphabet is the unique set composed of all the first letters of words, and all the other letters that appear in words prefixed by `##`:
+```python
+alphabet = []
+for word in word_freqs.keys():
+    if word[0] not in alphabet:
+        alphabet.append(word[0])
+    for letter in word[1:]:
+        if f"##{letter}" not in alphabet:
+            alphabet.append(f"##{letter}")
+
+alphabet.sort()
+alphabet
+
+print(alphabet)
+```
+
+```python
+['##a', '##b', '##c', '##d', '##e', '##f', '##g', '##h', '##i', '##k', '##l', '##m', '##n', '##o', '##p', '##r', '##s',
+ '##t', '##u', '##v', '##w', '##y', '##z', ',', '.', 'C', 'F', 'H', 'T', 'a', 'b', 'c', 'g', 'h', 'i', 's', 't', 'u',
+ 'w', 'y']
+```
+
+We also add the special tokens used by the model at the beginning of that vocabulary. In the case of BERT, it’s the list `["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]`:
+```python
+vocab = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"] + alphabet.copy()
+```
+
+Next, we split each word with all the letters that are not the first prefixed with `##`:
+```python
+splits = {
+    word: [c if i == 0 else f"##{c}" for i, c in enumerate(word)]
+    for word in word_freqs.keys()
+}
+```
+
+Then, we compute the score of each pair:
+```python
+def compute_pair_scores(splits):
+    letter_freqs = defaultdict(int)
+    pair_freqs = defaultdict(int)
+    for word, freq in word_freqs.items():
+        split = splits[word]
+        if len(split) == 1:
+            letter_freqs[split[0]] += freq
+            continue
+        for i in range(len(split) - 1):
+            pair = (split[i], split[i + 1])
+            letter_freqs[split[i]] += freq
+            pair_freqs[pair] += freq
+        letter_freqs[split[-1]] += freq
+
+    scores = {
+        pair: freq / (letter_freqs[pair[0]] * letter_freqs[pair[1]])
+        for pair, freq in pair_freqs.items()
+    }
+    return scores
+pair_scores = compute_pair_scores(splits)
+```
+We need to apply that merge in our splits dictionary:
+```python
+def merge_pair(a, b, splits):
+    for word in word_freqs:
+        split = splits[word]
+        if len(split) == 1:
+            continue
+        i = 0
+        while i < len(split) - 1:
+            if split[i] == a and split[i + 1] == b:
+                merge = a + b[2:] if b.startswith("##") else a + b
+                split = split[:i] + [merge] + split[i + 2 :]
+            else:
+                i += 1
+        splits[word] = split
+    return splits
+```
+
+Lastly, we loop until we have learned all the merges we want:
+```python
+vocab_size = 70
+while len(vocab) < vocab_size:
+    scores = compute_pair_scores(splits)
+    best_pair, max_score = "", None
+    for pair, score in scores.items():
+        if max_score is None or max_score < score:
+            best_pair = pair
+            max_score = score
+    splits = merge_pair(*best_pair, splits)
+    new_token = (
+        best_pair[0] + best_pair[1][2:]
+        if best_pair[1].startswith("##")
+        else best_pair[0] + best_pair[1]
+    )
+    vocab.append(new_token)
+
+print(vocab)
+```
+
+```python
+['[PAD]', '[UNK]', '[CLS]', '[SEP]', '[MASK]', '##a', '##b', '##c', '##d', '##e', '##f', '##g', '##h', '##i', '##k',
+ '##l', '##m', '##n', '##o', '##p', '##r', '##s', '##t', '##u', '##v', '##w', '##y', '##z', ',', '.', 'C', 'F', 'H',
+ 'T', 'a', 'b', 'c', 'g', 'h', 'i', 's', 't', 'u', 'w', 'y', 'ab', '##fu', 'Fa', 'Fac', '##ct', '##ful', '##full', '##fully',
+ 'Th', 'ch', '##hm', 'cha', 'chap', 'chapt', '##thm', 'Hu', 'Hug', 'Hugg', 'sh', 'th', 'is', '##thms', '##za', '##zat',
+ '##ut']
+```
+
+To tokenize a new text, we pre-tokenize it, split it, then apply the tokenization algorithm on each word. That is, we look for the biggest subword starting at the beginning of the first word and split it, then we repeat the process on the second part, and so on for the rest of that word and the following words in the text:
+```python
+def encode_word(word):
+    tokens = []
+    while len(word) > 0:
+        i = len(word)
+        while i > 0 and word[:i] not in vocab:
+            i -= 1
+        if i == 0:
+            return ["[UNK]"]
+        tokens.append(word[:i])
+        word = word[i:]
+        if len(word) > 0:
+            word = f"##{word}"
+    return tokens
+```
+
+As result, we can write a function that tokenizes a text:
+```python
+def tokenize(text):
+    pre_tokenize_result = tokenizer._tokenizer.pre_tokenizer.pre_tokenize_str(text)
+    pre_tokenized_text = [word for word, offset in pre_tokenize_result]
+    encoded_words = [encode_word(word) for word in pre_tokenized_text]
+    return sum(encoded_words, [])
+
+print(tokenize("This is the Hugging Face course!"))
+```
+
+```python
+['Th', '##i', '##s', 'is', 'th', '##e', 'Hugg', '##i', '##n', '##g', 'Fac', '##e', 'c', '##o', '##u', '##r', '##s',
+ '##e', '[UNK]']
+```
 
 #### SentencePiece
 [SentencePiece](https://github.com/google/sentencepiece) considers the text as a sequence of Unicode characters, and replaces spaces with a special character, `_`. Also, it performs ***reversible tokenization***, which allows to decode the tokens by concatenating them and replacing the `_` with spaces.
