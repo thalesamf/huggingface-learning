@@ -496,4 +496,4 @@ for pred in preds:
 
 In conclusion, the model adapted its weights to predict words associated with the movies domain.
 
-## :pushpin: 
+## :pushpin: Fine-tuning a translation model
